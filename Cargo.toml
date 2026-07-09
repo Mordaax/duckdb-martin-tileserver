@@ -1,0 +1,82 @@
+[package]
+name = "duckdb-martin-tileserver"
+version = "0.1.0"
+edition = "2021"
+authors = ["Mordaax"]
+description = "A DuckDB (spatial) backend that serves Mapbox Vector Tiles, modeled on Martin's tile-source design."
+license = "MIT"
+
+# Library: pure-logic + data layer, reusable and unit/integration-testable.
+[lib]
+name = "duckdb_martin_tileserver"
+path = "src/lib.rs"
+
+# Binary: the tile server.
+[[bin]]
+name = "duckdb-martin-tileserver"
+path = "src/main.rs"
+
+# ---------------------------------------------------------------------------
+# Features
+# ---------------------------------------------------------------------------
+# `duckdb` (default ON) compiles the DuckDB query layer + the axum server that
+# depends on it. The bundled DuckDB C++ build is heavy (several minutes). The
+# tile-math (`tile`), MVT encoder (`mvt_fallback`), LRU cache (`cache`) and
+# config (`config`) modules have NO DuckDB dependency, so they — and their tests
+# — compile and run with `--no-default-features`, e.g.:
+#
+#   cargo test --no-default-features        # DB-free core, no DuckDB compile
+#   cargo test                              # full crate (needs DuckDB build)
+[features]
+default = ["duckdb-backend"]
+# Pulls in the duckdb crate + the server/runtime that wires it to HTTP.
+duckdb-backend = ["dep:duckdb", "dep:axum", "dep:tokio", "dep:tower", "dep:tower-http"]
+
+[dependencies]
+# --- HTTP / async runtime (Martin itself is built on axum + tokio) ---
+# Only needed for the running server; gated behind `duckdb-backend` so the
+# DB-free core stays compilable without them.
+axum = { version = "0.7", optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+tower = { version = "0.4", optional = true }
+tower-http = { version = "0.5", features = ["trace", "cors", "fs"], optional = true }
+
+# --- Serialization / config ---
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# --- Observability ---
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# --- Errors ---
+thiserror = "1"
+anyhow = "1"
+
+# --- LRU tile cache ---
+lru = "0.12"
+
+# --- gzip tile compression (Content-Encoding: gzip when the client asks) ---
+flate2 = "1"
+
+# --- DuckDB data layer ---
+# The `bundled` feature compiles DuckDB from C++ source. This is SLOW (several
+# minutes) on a first build and requires a C++ compiler. If you have a system
+# libduckdb available you can drop `bundled` and link against it instead.
+duckdb = { version = "1", features = ["bundled"], optional = true }
+
+# NOTE on the MVT fallback: the pure-Rust fallback encoder in
+# `src/mvt_fallback.rs` is intentionally dependency-free (it encodes the MVT
+# protobuf directly, since the spec wire format is small and stable). An
+# alternative is the `geozero` crate's `MvtWriter`; we documented why we did not
+# pin it (its write API has shifted across releases). To use it instead, add:
+#   geozero = { version = "0.14", features = ["with-mvt", "with-wkb"] }
+# and swap the body of `mvt_fallback::encode_tile`.
+
+[dev-dependencies]
+# (pure-logic unit tests live inline in the modules and in tests/)
+
+[profile.release]
+opt-level = 3
+lto = "thin"

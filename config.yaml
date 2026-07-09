@@ -1,0 +1,69 @@
+# duckdb-martin-tileserver configuration.
+#
+# Each entry under `sources:` becomes a tile endpoint:
+#   GET /<source>/<z>/<x>/<y>(.mvt|.pbf)   -> MVT tile
+#   GET /<source>                          -> TileJSON
+#
+# Run the demo data generator first:
+#   python3 demo/gen_data.py
+# which writes demo/sg_flood_sensors.geojson (and .parquet if pyarrow is present).
+
+server:
+  listen: "0.0.0.0:3000"
+  # public_url: "http://localhost:3000"   # uncomment to pin TileJSON links
+  cache_size: 512                          # max encoded tiles held in the LRU
+
+sources:
+  # Primary demo source: Singapore flood/rainfall sensor points.
+  # Uses GeoJSON via DuckDB spatial's ST_Read so it works without pyarrow.
+  sg_rainfall:
+    description: "Singapore rainfall & flood sensor network"
+    data:
+      type: geojson
+      path: "demo/sg_flood_sensors.geojson"
+    table: sg_flood_sensors
+    layer_name: rainfall          # MVT layer id (MapLibre source-layer)
+    geometry_column: geom         # ST_Read names the geometry column "geom"
+    srid: 4326                    # GeoJSON is WGS84; server transforms to 3857
+    properties:
+      - station_id
+      - name
+      - rainfall_mm
+      - water_level_m
+      - status
+    minzoom: 0
+    maxzoom: 16
+    bounds: [103.6, 1.20, 104.10, 1.48]   # Singapore extent [w, s, e, n]
+    extent: 4096
+    buffer: 64
+
+  # Second source: the SAME sensor network served from a GeoParquet file (the
+  # analytics / columnar path). Demonstrates config-driven multi-source routing:
+  # this becomes its own /sg_rainfall_pq/{z}/{x}/{y} endpoint with its own
+  # TileJSON, and appears alongside sg_rainfall in /catalog.
+  #
+  # The sample .parquet (demo/sg_flood_sensors.parquet, written by gen_data.py)
+  # stores geometry as standard WKB bytes, so geometry_encoding is `wkb` and the
+  # query wraps the column in ST_GeomFromWKB(...). Loaded at startup via
+  # CREATE TABLE ... AS SELECT * FROM read_parquet(...).
+  sg_rainfall_pq:
+    description: "Singapore sensors (GeoParquet / analytics path)"
+    data:
+      type: parquet
+      path: "demo/sg_flood_sensors.parquet"
+    table: sg_flood_sensors_pq
+    layer_name: rainfall          # same MVT layer id, so the demo styles both
+    geometry_column: geom
+    geometry_encoding: wkb        # parquet stores geometry as WKB bytes
+    srid: 4326
+    properties:
+      - station_id
+      - name
+      - rainfall_mm
+      - water_level_m
+      - status
+    minzoom: 0
+    maxzoom: 16
+    bounds: [103.6, 1.20, 104.10, 1.48]
+    extent: 4096
+    buffer: 64

@@ -1,0 +1,11 @@
+# deps / build
+node_modules/
+target/
+__pycache__/
+*.pyc
+.venv/
+venv/
+dist/
+build/
+*.duckdb
+.DS_Store
